@@ -16,6 +16,11 @@ from dotenv import load_dotenv
 # Cargar variables de entorno
 load_dotenv()
 
+# Asegurar imports desde el root del proyecto aunque se ejecute desde otro CWD
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 # Configurar logging
 logging.basicConfig(
     level=logging.INFO,
@@ -33,7 +38,8 @@ async def generate_video(
     output_name: str = None,
     add_music: bool = True,
     add_subtitles: bool = True,
-    analyze_trends: bool = True
+    analyze_trends: bool = True,
+    dry_run: bool = False
 ):
     """
     Generar video completo desde texto
@@ -143,22 +149,26 @@ async def generate_video(
         safe_topic = text[:30].replace(" ", "_").replace("/", "_")
         output_name = f"output/video_{safe_topic}_{timestamp}.mp4"
     
-    video_result = assembler.assemble_video(
-        script=script,
-        audio_files=audio_files,
-        image_files=image_files,
-        output_path=output_name,
-        background_music=None,  # Se puede agregar música después
-        music_volume=0.15 if add_music else 0,
-        add_subtitles=add_subtitles
-    )
-    
-    if not video_result.get("success"):
-        logger.error(f"❌ Error ensamblando video: {video_result.get('error')}")
-        return None
-    
-    logger.info(f"✅ Video ensamblado: {output_name}")
-    logger.info(f"📊 Duración final: {video_result.get('duration', 0):.2f}s")
+    if dry_run:
+        logger.info("🧪 Dry-run activo: omitiendo ensamblaje de video")
+        video_result = {"success": True, "duration": total_duration, "video_path": None}
+    else:
+        video_result = assembler.assemble_video(
+            script=script,
+            audio_files=audio_files,
+            image_files=image_files,
+            output_path=output_name,
+            background_music=None,  # Se puede agregar música después
+            music_volume=0.15 if add_music else 0,
+            add_subtitles=add_subtitles
+        )
+        
+        if not video_result.get("success"):
+            logger.error(f"❌ Error ensamblando video: {video_result.get('error')}")
+            return None
+        
+        logger.info(f"✅ Video ensamblado: {output_name}")
+        logger.info(f"📊 Duración final: {video_result.get('duration', 0):.2f}s")
     
     # Optimizar para YouTube
     logger.info("\n📈 Paso 6/6: Generando optimización para YouTube...")
@@ -187,6 +197,7 @@ async def generate_video(
     }
     
     metadata_path = output_name.replace(".mp4", "_metadata.txt")
+    Path(metadata_path).parent.mkdir(parents=True, exist_ok=True)
     with open(metadata_path, "w", encoding="utf-8") as f:
         f.write("=" * 60 + "\n")
         f.write("📺 YOUTUBE OPTIMIZATION DATA\n")
@@ -292,6 +303,12 @@ Ejemplos de uso:
         action="store_true",
         help="No analizar tendencias virales"
     )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Ejecuta hasta guión/voz/imágenes pero NO ensambla el video"
+    )
     
     parser.add_argument(
         "--verbose",
@@ -314,7 +331,8 @@ Ejemplos de uso:
         output_name=args.output,
         add_music=not args.no_music,
         add_subtitles=not args.no_subtitles,
-        analyze_trends=not args.no_trends
+        analyze_trends=not args.no_trends,
+        dry_run=args.dry_run
     ))
     
     # Retornar código de salida apropiado

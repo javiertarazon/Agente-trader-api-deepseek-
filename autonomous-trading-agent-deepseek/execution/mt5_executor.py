@@ -20,7 +20,7 @@ class MT5Executor:
             print(f"MT5 error: {e}")
             return False
 
-    async def execute(self, symbol, direction, size, stop_loss, take_profit):
+    async def execute(self, symbol, direction, size, stop_loss, take_profit, entry_price=None):
         if not self.initialized:
             if not await self.initialize():
                 return None

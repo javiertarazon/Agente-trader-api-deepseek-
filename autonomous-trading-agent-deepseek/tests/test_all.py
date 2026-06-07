@@ -87,6 +87,15 @@ class TestTechnicalFilter:
         assert filt.min_score == 3
         assert filt.volume_mult == 2.0
 
+    def test_should_analyze_with_volume_profile_dict(self, sample_features):
+        filt = TechnicalFilter(atr_threshold=0.15, min_score=1, volume_mult=1.2)
+        symbol = "BTC/USDT"
+        market_data = {'last': sample_features['price']}
+
+        vol_prof = {'avg_volume': sample_features['volume'] * 0.5}
+        should, _reason = filt.should_analyze(symbol, market_data, {}, sample_features, vol_prof, {})
+        assert isinstance(should, bool)
+
 class TestCompositeFilter:
     def test_composite_score_calculation(self, sample_features):
         filt = CompositeFilter(min_total_score=2)
@@ -366,6 +375,59 @@ class TestIntegration:
             size, sl, tp = rm.calculate_position(
                 "BTC/USDT", sample_features['price'], 'buy', 0.02, 0.04)
             assert size > 0
+
+
+class TestBacktestEngine:
+    def test_fetch_historical_data_dedup_and_end_ts(self):
+        import asyncio
+        from datetime import datetime, timezone, timedelta
+
+        from backtesting.engine import BacktestEngine, BacktestConfig
+
+        start = datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=45)  # 3 candles en 15m
+
+        # timestamps in ms
+        t0 = int(start.timestamp() * 1000)
+        t1 = int((start + timedelta(minutes=15)).timestamp() * 1000)
+        t2 = int((start + timedelta(minutes=30)).timestamp() * 1000)
+        t3 = int((start + timedelta(minutes=45)).timestamp() * 1000)
+        t4 = int((start + timedelta(minutes=60)).timestamp() * 1000)  # fuera de rango
+
+        class FakeExchange:
+            def __init__(self):
+                self.calls = 0
+
+            async def fetch_ohlcv(self, symbol, timeframe, since=None, limit=None):
+                self.calls += 1
+                if self.calls == 1:
+                    # incluye duplicado intencional (t1 repetido)
+                    return [
+                        [t0, 1, 2, 0.5, 1.5, 10],
+                        [t1, 1.5, 2.2, 1.2, 2.0, 11],
+                        [t1, 1.5, 2.2, 1.2, 2.0, 11],
+                    ]
+                if self.calls == 2:
+                    # incluye candle fuera de rango (t4)
+                    return [
+                        [t2, 2.0, 2.5, 1.8, 2.2, 12],
+                        [t3, 2.2, 2.4, 2.0, 2.1, 13],
+                        [t4, 2.1, 2.3, 1.9, 2.0, 14],
+                    ]
+                return []
+
+        fake = FakeExchange()
+        engine = BacktestEngine(
+            symbols=["SOL/USDT"],
+            start=start,
+            end=end,
+            timeframe="15m",
+            config=BacktestConfig(timeframe="15m", rate_limit_sleep_s=0),
+        )
+
+        data = asyncio.run(engine._fetch_historical_data(fake, "SOL/USDT"))
+        # Debe incluir hasta t3 y sin duplicados
+        assert [row[0] for row in data] == [t0, t1, t2, t3]
 
 # ==================== RUN WITH: pytest tests/test_all.py -v ====================
 

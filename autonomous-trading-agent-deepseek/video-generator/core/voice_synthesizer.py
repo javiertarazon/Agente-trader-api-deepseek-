@@ -8,6 +8,8 @@ import logging
 from typing import Optional, Dict, Any
 from pathlib import Path
 from dotenv import load_dotenv
+import subprocess
+import wave
 
 load_dotenv()
 
@@ -47,6 +49,7 @@ class VoiceSynthesizer:
             stability: Estabilidad de voz (0-1), más alto = más consistente
             similarity_boost: Similaridad al original (0-1)
         """
+        self.provider = (os.getenv("TTS_PROVIDER") or "elevenlabs").strip().lower()
         self.api_key = api_key or os.getenv("ELEVENLABS_API_KEY")
         self.voice_id = self.AVAILABLE_VOICES.get(voice_id, {}).get("id", voice_id)
         self.model = model
@@ -54,9 +57,9 @@ class VoiceSynthesizer:
         self.similarity_boost = similarity_boost
         self.client = None
         
-        if self.api_key:
+        if self.provider == "elevenlabs" and self.api_key:
             self._initialize_client()
-    
+
     def _initialize_client(self):
         """Inicializar cliente de ElevenLabs"""
         try:
@@ -108,10 +111,23 @@ class VoiceSynthesizer:
             "duration_seconds": 0,
             "error": None
         }
-        
+
+        if self.provider == "mock":
+            return self._generate_mock_audio(text, output_path)
+
+        if self.provider == "piper":
+            return self._generate_with_piper(text, output_path)
+
+        if self.provider == "minimax":
+            return self._generate_with_minimax(text, output_path)
+
+        if self.provider != "elevenlabs":
+            result["error"] = f"TTS_PROVIDER inválido: {self.provider}"
+            return result
+
         if not self.client:
             # Modo offline - retornar error informativo
-            result["error"] = "ElevenLabs no configurado. Agrega tu API key en .env"
+            result["error"] = "ElevenLabs no configurado. Configura ELEVENLABS_API_KEY o usa TTS_PROVIDER=mock"
             return result
         
         try:
@@ -155,6 +171,129 @@ class VoiceSynthesizer:
             result["error"] = str(e)
         
         return result
+
+    def _generate_mock_audio(self, text: str, output_path: Optional[str]) -> Dict[str, Any]:
+        """Genera un WAV de silencio para permitir pruebas end-to-end sin servicios externos."""
+        result = {"success": False, "audio_path": None, "duration_seconds": 0, "error": None}
+        if not output_path:
+            result["error"] = "output_path requerido en modo mock"
+            return result
+
+        try:
+            word_count = max(1, len(text.split()))
+            duration_seconds = max(1.0, (word_count / 150) * 60)
+
+            wav_path = os.path.splitext(output_path)[0] + ".wav"
+            Path(wav_path).parent.mkdir(parents=True, exist_ok=True)
+
+            sample_rate = 22050
+            n_frames = int(duration_seconds * sample_rate)
+            with wave.open(wav_path, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)  # 16-bit
+                wf.setframerate(sample_rate)
+                wf.writeframes(b"\x00\x00" * n_frames)
+
+            result["success"] = True
+            result["audio_path"] = wav_path
+            result["duration_seconds"] = duration_seconds
+            return result
+        except Exception as e:
+            result["error"] = f"Mock TTS error: {e}"
+            return result
+
+    def _generate_with_piper(self, text: str, output_path: Optional[str]) -> Dict[str, Any]:
+        """
+        TTS open source vía Piper (CLI). Requiere:
+        - PIPER_BIN (default: piper)
+        - PIPER_MODEL (ruta al .onnx)
+        """
+        result = {"success": False, "audio_path": None, "duration_seconds": 0, "error": None}
+        if not output_path:
+            result["error"] = "output_path requerido para piper"
+            return result
+
+        piper_bin = os.getenv("PIPER_BIN", "piper")
+        piper_model = os.getenv("PIPER_MODEL")
+        if not piper_model:
+            result["error"] = "PIPER_MODEL no configurado"
+            return result
+
+        wav_path = os.path.splitext(output_path)[0] + ".wav"
+        try:
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            proc = subprocess.run(
+                [piper_bin, "--model", piper_model, "--output_file", wav_path],
+                input=text.encode("utf-8"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if proc.returncode != 0:
+                result["error"] = proc.stderr.decode("utf-8", errors="ignore")[:500]
+                return result
+
+            # Convertir WAV -> MP3 si pydub está disponible
+            try:
+                from pydub import AudioSegment
+
+                audio = AudioSegment.from_wav(wav_path)
+                audio.export(output_path, format="mp3", bitrate="192k")
+                result["duration_seconds"] = len(audio) / 1000.0
+                result["audio_path"] = output_path
+                result["success"] = True
+                return result
+            except Exception:
+                result["audio_path"] = wav_path
+                result["success"] = True
+                return result
+        except Exception as e:
+            result["error"] = f"Piper TTS error: {e}"
+            return result
+
+    def _generate_with_minimax(self, text: str, output_path: Optional[str]) -> Dict[str, Any]:
+        """
+        TTS vía MiniMax. Para evitar hardcode de endpoints, se configura vía env:
+        - MINIMAX_API_KEY
+        - MINIMAX_TTS_URL (URL completa)
+        """
+        result = {"success": False, "audio_path": None, "duration_seconds": 0, "error": None}
+        if not output_path:
+            result["error"] = "output_path requerido para minimax"
+            return result
+
+        api_key = os.getenv("MINIMAX_API_KEY")
+        url = os.getenv("MINIMAX_TTS_URL")
+        if not api_key or not url:
+            result["error"] = "MINIMAX_API_KEY o MINIMAX_TTS_URL no configurados"
+            return result
+
+        try:
+            import requests
+
+            payload = {
+                "text": text,
+                "voice": os.getenv("MINIMAX_VOICE", "female-1"),
+                "format": "mp3",
+            }
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            resp = requests.post(url, json=payload, headers=headers, timeout=60)
+            if resp.status_code != 200:
+                result["error"] = f"HTTP {resp.status_code}: {resp.text[:300]}"
+                return result
+
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, "wb") as f:
+                f.write(resp.content)
+
+            result["success"] = True
+            result["audio_path"] = output_path
+            word_count = max(1, len(text.split()))
+            result["duration_seconds"] = max(1.0, (word_count / 150) * 60)
+            return result
+        except Exception as e:
+            result["error"] = f"MiniMax TTS error: {e}"
+            return result
     
     def generate_from_script(self, script: Dict, output_dir: str = "temp/audio") -> Dict[str, Any]:
         """
@@ -187,7 +326,7 @@ class VoiceSynthesizer:
             
             if hook_result["success"]:
                 result["sections"]["hook"] = hook_result
-                audio_files.append(hook_path)
+                audio_files.append(hook_result.get("audio_path") or hook_path)
                 total_duration += hook_result.get("duration_seconds", 0)
             else:
                 result["errors"].append(f"Hook: {hook_result.get('error')}")
@@ -203,7 +342,7 @@ class VoiceSynthesizer:
                 
                 if section_result["success"]:
                     result["sections"][section_name] = section_result
-                    audio_files.append(section_path)
+                    audio_files.append(section_result.get("audio_path") or section_path)
                     total_duration += section_result.get("duration_seconds", 0)
                 else:
                     result["errors"].append(f"{section_name}: {section_result.get('error')}")
@@ -215,7 +354,7 @@ class VoiceSynthesizer:
             
             if cta_result["success"]:
                 result["sections"]["cta"] = cta_result
-                audio_files.append(cta_path)
+                audio_files.append(cta_result.get("audio_path") or cta_path)
                 total_duration += cta_result.get("duration_seconds", 0)
             else:
                 result["errors"].append(f"CTA: {cta_result.get('error')}")
@@ -247,7 +386,7 @@ class VoiceSynthesizer:
             combined = AudioSegment.empty()
             
             for audio_file in audio_files:
-                audio = AudioSegment.from_mp3(audio_file)
+                audio = AudioSegment.from_file(audio_file)
                 combined += audio
                 
                 # Agregar pausa (excepto después del último)
@@ -255,7 +394,13 @@ class VoiceSynthesizer:
                     silence = AudioSegment.silent(duration=int(gap_seconds * 1000))
                     combined += silence
             
-            combined.export(output_path, format="mp3", bitrate="192k")
+            # Si se solicita MP3, requiere ffmpeg; si falla, exportar WAV.
+            try:
+                combined.export(output_path, format="mp3", bitrate="192k")
+            except Exception:
+                wav_path = os.path.splitext(output_path)[0] + ".wav"
+                combined.export(wav_path, format="wav")
+                output_path = wav_path
             logger.info(f"Audio concatenado guardado en: {output_path}")
             
         except ImportError:

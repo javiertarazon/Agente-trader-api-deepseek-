@@ -4,6 +4,8 @@ class RiskManager:
     def __init__(self, initial_balance, max_positions, risk_per_trade, 
                  max_daily_drawdown, max_total_drawdown):
         self.balance = initial_balance
+        self.initial_balance = initial_balance
+        self.peak_balance = initial_balance
         self.max_positions = max_positions
         self.risk_per_trade = risk_per_trade
         self.max_daily_drawdown = max_daily_drawdown
@@ -16,11 +18,11 @@ class RiskManager:
         if self.open_positions >= self.max_positions:
             return False
         
-        daily_dd = abs(min(0, self.daily_pnl)) / self.balance
+        daily_dd = abs(min(0, self.daily_pnl)) / self.peak_balance if self.peak_balance else 0
         if daily_dd >= self.max_daily_drawdown:
             return False
         
-        total_dd = abs(min(0, self.total_pnl)) / self.balance
+        total_dd = abs(min(0, self.total_pnl)) / self.initial_balance if self.initial_balance else 0
         if total_dd >= self.max_total_drawdown:
             return False
         
@@ -53,6 +55,9 @@ class RiskManager:
     def update_pnl(self, pnl: float):
         self.daily_pnl += pnl
         self.total_pnl += pnl
+        self.balance += pnl
+        if self.balance > self.peak_balance:
+            self.peak_balance = self.balance
         if pnl != 0:
             self.open_positions = max(0, self.open_positions - 1)
 

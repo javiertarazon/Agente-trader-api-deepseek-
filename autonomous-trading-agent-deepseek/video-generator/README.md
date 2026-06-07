@@ -93,12 +93,36 @@ video-generator/
 
 ```ini
 # IA de Texto (Guiones)
+# Selección de proveedor (openrouter | deepseek | openai | offline)
+LLM_PROVIDER=openrouter
+LLM_MODEL=deepseek/deepseek-chat
+LLM_FALLBACK_MODELS=
+
+# OpenRouter (recomendado para múltiples modelos)
+OPENROUTER_API_KEY=sk-xxx
+OPENROUTER_HTTP_REFERER=https://tusitio.com  # opcional
+OPENROUTER_APP_TITLE=video-generator        # opcional
+
+# DeepSeek / OpenAI (alternativas)
 DEEPSEEK_API_KEY=sk-xxx
-OPENAI_API_KEY=sk-xxx  # Alternativa
+OPENAI_API_KEY=sk-xxx
 
 # Voz Humana (TTS)
+# Selección de proveedor (elevenlabs | minimax | piper | mock)
+TTS_PROVIDER=elevenlabs
+
+# ElevenLabs
 ELEVENLABS_API_KEY=xi-xxx
-ELEVENLABS_VOICE_ID=rachel  # ID de voz preferida
+ELEVENLABS_VOICE_ID=rachel
+
+# MiniMax (configura tu endpoint exacto)
+MINIMAX_API_KEY=
+MINIMAX_TTS_URL=
+MINIMAX_VOICE=female-1
+
+# Piper (open source local TTS)
+PIPER_BIN=piper
+PIPER_MODEL=/ruta/al/model.onnx
 
 # Generación de Imágenes/Video
 REPLICATE_API_TOKEN=r8-xxx

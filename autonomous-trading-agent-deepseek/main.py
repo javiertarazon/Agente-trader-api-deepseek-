@@ -4,9 +4,7 @@ from config import *
 from data.live_feed import LiveMarketFeed
 from data.impact_monitor import ImpactMonitor
 from data.features import compute_features
-from brain.prompt_builder import build_rich_prompt
-from brain.llm_client import query_deepseek
-from brain.decision_parser import parse_decision
+from brain.decision_maker import decide as decide_trade
 from execution.time_gate import TimeGate, Timeframe
 from filters import load_filter
 from risk.manager import RiskManager
@@ -117,18 +115,21 @@ async def main():
                     logger.debug(f"{symbol}: Time gate no válido")
                     continue
                 
-                # Construir prompt
-                prompt = build_rich_prompt(symbol, ticker, f1m, f5m, f15m, 
-                                           vol_profile, order_book, impact)
-                
-                # Verificar presupuesto de tokens
-                if daily_tokens > MAX_DAILY_TOKEN_BUDGET * 1000000:
+                # Verificar presupuesto de tokens (solo relevante cuando se usa LLM)
+                if DEEPSEEK_API_KEY and daily_tokens > MAX_DAILY_TOKEN_BUDGET * 1000000:
                     logger.warning("Presupuesto diario de tokens alcanzado")
                     continue
-                
-                # Consultar LLM
-                decision_text = await query_deepseek(prompt)
-                decision = parse_decision(decision_text)
+
+                decision = await decide_trade(
+                    symbol=symbol,
+                    ticker=ticker,
+                    f1m=f1m,
+                    f5m=f5m,
+                    f15m=f15m,
+                    vol_profile=vol_profile,
+                    order_book=order_book,
+                    impact=impact,
+                )
                 
                 if not decision or decision.get('confidence', 0) < MIN_CONFIDENCE:
                     logger.debug(f"{symbol}: Decisión inválida o confianza baja")
@@ -149,13 +150,21 @@ async def main():
                     continue
                 
                 # Ejecutar trade
-                result = await executor.execute(symbol, decision.get('direction'),
-                                                position_size, stop_loss, take_profit)
+                result = await executor.execute(
+                    symbol,
+                    decision.get('direction'),
+                    position_size,
+                    stop_loss,
+                    take_profit,
+                    entry_price=ticker.get("last"),
+                )
                 
                 if result:
                     # Guardar en memoria con resultado completo
                     memory.save_trade(symbol, decision, result)
-                    daily_tokens += len(prompt) + len(decision_text)
+                    if DEEPSEEK_API_KEY:
+                        # Aproximación conservadora: se usa el prompt completo dentro de decide_trade().
+                        daily_tokens += 1
                     
                     logger.info(f"✅ {symbol}: {decision.get('direction').upper()} | "
                                 f"Conf: {decision.get('confidence')}% | RR: {rr:.2f} | "

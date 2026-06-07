@@ -30,9 +30,8 @@ Responde SOLO en formato JSON:
     "direction": "buy" o "sell" o "wait",
     "confidence": 0-100,
     "reasoning": "breve explicación",
-    "entry_price": precio_entrada,
-    "stop_loss": precio_sl,
-    "take_profit": precio_tp,
+    "stop_loss_pct": 0.0-0.2,
+    "take_profit_pct": 0.0-0.5,
     "risk_reward": ratio_rr
 }}"""
     return prompt

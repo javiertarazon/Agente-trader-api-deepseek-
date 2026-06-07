@@ -100,20 +100,60 @@ class ScriptGenerator:
             api_key: API key de DeepSeek u OpenAI
             model: Modelo a utilizar
         """
-        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")
-        self.model = model
+        self.provider = (os.getenv("LLM_PROVIDER") or "").strip().lower()
+
+        openrouter_key = os.getenv("OPENROUTER_API_KEY")
+        deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+        openai_key = os.getenv("OPENAI_API_KEY")
+
+        # Auto-detect provider if not set explicitly.
+        if not self.provider:
+            if openrouter_key:
+                self.provider = "openrouter"
+            elif deepseek_key:
+                self.provider = "deepseek"
+            elif openai_key:
+                self.provider = "openai"
+            else:
+                self.provider = "offline"
+
+        self.api_key = api_key or (
+            openrouter_key if self.provider == "openrouter" else
+            deepseek_key if self.provider == "deepseek" else
+            openai_key if self.provider == "openai" else
+            None
+        )
+
+        self.model = os.getenv("LLM_MODEL") or model
+        fallbacks_raw = os.getenv("LLM_FALLBACK_MODELS", "")
+        self.models = [m.strip() for m in [self.model, *fallbacks_raw.split(",")] if m.strip()]
         self.client = None
         
-        if self.api_key:
+        if self.api_key and self.provider != "offline":
             self._initialize_client()
     
     def _initialize_client(self):
         """Inicializar cliente de IA"""
         try:
-            # Intentar con OpenAI primero (compatible con DeepSeek)
             from openai import OpenAI
-            base_url = "https://api.deepseek.com/v1" if "deepseek" in self.model.lower() else None
-            self.client = OpenAI(api_key=self.api_key, base_url=base_url)
+
+            base_url = os.getenv("LLM_BASE_URL")
+            default_headers = {}
+
+            if not base_url:
+                if self.provider == "openrouter":
+                    base_url = "https://openrouter.ai/api/v1"
+                    # OpenRouter recommended headers (optional)
+                    referer = os.getenv("OPENROUTER_HTTP_REFERER")
+                    title = os.getenv("OPENROUTER_APP_TITLE")
+                    if referer:
+                        default_headers["HTTP-Referer"] = referer
+                    if title:
+                        default_headers["X-Title"] = title
+                elif self.provider == "deepseek" or "deepseek" in self.model.lower():
+                    base_url = "https://api.deepseek.com/v1"
+
+            self.client = OpenAI(api_key=self.api_key, base_url=base_url, default_headers=default_headers or None)
             logger.info("Cliente de IA inicializado correctamente")
         except ImportError:
             logger.warning("OpenAI no instalado. Usando modo offline con plantillas.")
@@ -155,12 +195,22 @@ Responde SOLO en formato JSON válido con esta estructura:
     "cta_examples": ["cta1", "cta2"]
 }}"""
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=1000
-            )
+            response = None
+            last_error = None
+            for model in self.models:
+                try:
+                    response = self.client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.7,
+                        max_tokens=1000
+                    )
+                    break
+                except Exception as e:
+                    last_error = e
+                    continue
+            if response is None:
+                raise last_error or RuntimeError("No se pudo consultar el LLM")
             
             content = response.choices[0].message.content.strip()
             # Extraer JSON si viene envuelto en markdown
@@ -335,12 +385,22 @@ Responde SOLO en formato JSON válido con esta estructura:
 }}"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.8,
-                max_tokens=2000
-            )
+            response = None
+            last_error = None
+            for model in self.models:
+                try:
+                    response = self.client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.8,
+                        max_tokens=2000
+                    )
+                    break
+                except Exception as e:
+                    last_error = e
+                    continue
+            if response is None:
+                raise last_error or RuntimeError("No se pudo consultar el LLM")
             
             content = response.choices[0].message.content.strip()
             if "```json" in content:
