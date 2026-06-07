@@ -15,23 +15,20 @@ class PaperEngine:
         self.max_drawdown = 0.0
         self.equity_curve = []
 
-    async def execute(self, symbol, direction, size, stop_loss, take_profit):
+    async def execute(self, symbol, direction, size, stop_loss, take_profit, entry_price=None):
         """Ejecutar orden en papel con precios realistas"""
         if direction not in ['buy', 'sell']:
             logger.warning(f"Dirección inválida: {direction}")
             return None
         
-        # Obtener precio actual del mercado (simulado pero más realista)
+        # Obtener precio actual del mercado (si viene del feed, usarlo; si no, fallback)
         import random
-        base_price = 100 + random.random() * 50  # En producción usar precio real del ticker
+        base_price = float(entry_price) if entry_price else (100 + random.random() * 50)
         slippage = base_price * (random.uniform(-0.001, 0.001) * SLIPPAGE_FACTOR)
         entry = base_price + slippage
         
         sl_distance = abs(entry - stop_loss) / entry if entry != 0 else 0
         tp_distance = abs(take_profit - entry) / entry if entry != 0 else 0
-        
-        risk = size * sl_distance
-        reward = size * tp_distance
         
         commission = size * entry * COMMISSION_RATE
         

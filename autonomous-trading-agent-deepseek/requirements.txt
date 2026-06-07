@@ -6,7 +6,7 @@ streamlit>=1.25
 plotly>=5.15
 python-dotenv>=1.0
 aiohttp>=3.8
-MetaTrader5>=5.0
+MetaTrader5>=5.0; platform_system == "Windows"
 arch>=5.0
 scipy>=1.10
 optuna>=3.0

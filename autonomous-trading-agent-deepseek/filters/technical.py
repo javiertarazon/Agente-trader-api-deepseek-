@@ -35,7 +35,12 @@ class TechnicalFilter(BasePreFilter):
         self.prev_macd[symbol] = cur_above
         
         vol = f5m.get('volume', 0)
-        avg = vol_prof.get(symbol, vol)
+        avg = vol
+        if isinstance(vol_prof, dict):
+            if 'avg_volume' in vol_prof:
+                avg = vol_prof.get('avg_volume', vol)
+            else:
+                avg = vol_prof.get(symbol, vol)
         if vol > avg * self.volume_mult:
             score += 1
         

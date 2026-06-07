@@ -8,8 +8,8 @@ def compute_features(ohlcv):
     
     df = np.array(ohlcv)
     close = df[:, 4]
-    high = df[:, 3]
-    low = df[:, 2]
+    high = df[:, 2]
+    low = df[:, 3]
     open_p = df[:, 1]
     volume = df[:, 5]
     
@@ -53,7 +53,11 @@ def compute_features(ohlcv):
     # Volume
     features['volume'] = volume[-1]
     features['volume_ma'] = np.mean(volume[-20:])
-    features['volume_zscore'] = (volume[-1] - features['volume_ma']) / np.std(volume[-20:]) if len(volume) > 20 else 0
+    if len(volume) > 20:
+        vol_std = np.std(volume[-20:])
+        features['volume_zscore'] = (volume[-1] - features['volume_ma']) / vol_std if vol_std != 0 else 0
+    else:
+        features['volume_zscore'] = 0
     
     # Momentum
     features['momentum'] = close[-1] - close[-10] if len(close) > 10 else 0

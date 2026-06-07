@@ -50,6 +50,9 @@ class MemoryDB:
         exit_price = result.get('exit', None)
         pnl = result.get('pnl', None)
         size = result.get('size', decision.get('size', 0))
+        entry_price = decision.get('entry_price')
+        if entry_price is None:
+            entry_price = result.get('entry', None) or result.get('price', None)
         
         cursor.execute('''
             INSERT INTO trades (symbol, direction, entry, exit, size, pnl, confidence, reasoning)
@@ -57,7 +60,7 @@ class MemoryDB:
         ''', (
             symbol,
             decision.get('direction'),
-            decision.get('entry_price'),
+            entry_price,
             exit_price,
             size,
             pnl,
