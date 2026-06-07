@@ -76,7 +76,7 @@ class VideoAssembler:
                 ImageClip, AudioFileClip, CompositeVideoClip,
                 CompositeAudioClip, concatenate_videoclips, TextClip
             )
-            from moviepy.video.fx.all import fadein, fadeout
+            from moviepy.audio.fx.all import audio_loop
             
             # Crear clips de video para cada imagen
             clips = []
@@ -114,10 +114,8 @@ class VideoAssembler:
                 music_clip = AudioFileClip(background_music)
                 
                 # Loop si la música es más corta que el video
-                while music_clip.duration < final_video.duration:
-                    music_clip = music_clip.with_effects([
-                        lambda c: c.set_start(c.duration)
-                    ])
+                if music_clip.duration < final_video.duration:
+                    music_clip = audio_loop(music_clip, duration=final_video.duration)
                 
                 # Recortar al tamaño del video
                 music_clip = music_clip.subclip(0, final_video.duration)

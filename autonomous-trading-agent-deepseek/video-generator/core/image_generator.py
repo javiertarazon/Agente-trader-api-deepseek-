@@ -116,6 +116,25 @@ class ImageGenerator:
         full_prompt = f"{prompt}, {style_modifier}"
         
         if not self.client:
+            # Modo offline: generar placeholder local para no romper el pipeline.
+            try:
+                if output_path:
+                    from PIL import Image, ImageDraw, ImageFont
+
+                    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                    img = Image.new("RGB", (width, height), color=(20, 20, 20))
+                    draw = ImageDraw.Draw(img)
+                    text = (prompt[:120] + "...") if len(prompt) > 120 else prompt
+                    draw.text((40, 40), "OFFLINE PLACEHOLDER", fill=(255, 255, 255))
+                    draw.text((40, 100), text, fill=(220, 220, 220))
+                    img.save(output_path, format="JPEG", quality=85)
+                    result["image_paths"].append(output_path)
+                    result["success"] = True
+                    return result
+            except Exception as e:
+                result["error"] = f"Replicate no configurado y falló placeholder: {e}"
+                return result
+
             result["error"] = "Replicate no configurado. Agrega tu API key en .env"
             return result
         
